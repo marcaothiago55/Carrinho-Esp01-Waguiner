@@ -1,0 +1,226 @@
+// Protótipo idealizado pelo professor Wagner Szpak.
+// Nessa versão não é necessário o uso de um Arduino,
+// o controle da ponte H é realizado apenas com o ESP01.
+
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
+
+// Página HTML embutida
+String pagina = R"===(
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <style>
+        body {
+            text-align: center;
+        }
+
+        .prevent-select {
+            -webkit-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }        
+
+        .joystick-table {
+            width: 100%;
+            height: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            margin: 0 auto;
+        }
+
+        .joystick-cell {
+            width: 33.33%;
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        .joystick-button {
+            width: 100px;
+            height: 100px;
+            border: 6px solid;
+            border-radius: 50%;
+            font-size: 18px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.3s, box-shadow 0.3s;
+            display: inline-block;
+        }
+
+        #botao1 { background-color: #3498db; color: #ffffff; }
+        #botao1:active { background-color: #2980b9; transform: translateY(2px); box-shadow: none; }
+
+        #botao2 { background-color: #ff8c66; color: #ffffff; }
+        #botao2:active { background-color: #ff5733; transform: translateY(2px); box-shadow: none; }
+
+        #botao3 { background-color: #1d8348; color: #ffffff; }
+        #botao3:active { background-color: #27ae60; transform: translateY(2px); box-shadow: none; }
+
+        #botao4 { background-color: #d35400; color: #ffffff; }
+        #botao4:active { background-color: #f39c12; transform: translateY(2px); box-shadow: none; }
+
+        #emoji-robô {
+            font-size: 100px;
+        }
+    </style>
+</head>
+<body unselectable="on" class="prevent-select">
+    <h2 class="prevent-select">&#129302; ROBÓTICA PARANÁ &#129302;</h2>
+    <h2 class="prevent-select">&#x1F3AE; Robô Wireless versão II &#128246;</h2>
+
+    <table class="joystick-table">
+        <tr>
+            <td></td>
+            <td><button class="prevent-select joystick-button" id="botao1"></button></td>
+            <td></td>
+        </tr>
+        <tr>
+            <td><button class="prevent-select joystick-button" id="botao2"></button></td>
+            <td><div id="emoji-robô">&#x1F3AE;</div></td>
+            <td><button class="prevent-select joystick-button" id="botao3"></button></td>
+        </tr>
+        <tr>
+            <td></td>
+            <td><button class="prevent-select joystick-button" id="botao4"></button></td>
+            <td></td>
+        </tr>
+    </table>
+
+  <footer style="text-align: center; font-size: 0.9em; color: gray; margin-top: 20px;">
+  <p>Projeto desenvolvido com inspiração e contribuição do Prof. Wagner Szpak</p>
+  </footer>
+
+<script>
+    const botao1 = document.getElementById('botao1');
+    const botao2 = document.getElementById('botao2');
+    const botao3 = document.getElementById('botao3');
+    const botao4 = document.getElementById('botao4');
+
+    let intervalID = null;
+    let botaoAtivo = null;
+
+    function iniciarAcao(botao, comando, corPressionado, corSolto) {
+        if (botaoAtivo === null) {
+            botaoAtivo = botao;
+            botao.style.backgroundColor = corPressionado;
+            botao.style.transform = 'translateY(2px)';
+            botao.style.boxShadow = 'none';
+            intervalID = setInterval(() => {
+                fetch('/pressionado', { method: 'POST', body: comando });
+            }, 100);
+        }
+    }
+
+    function pararAcao(botao, corSolto) {
+        if (botaoAtivo === botao) {
+            botao.style.backgroundColor = corSolto;
+            botao.style.transform = 'translateY(0)';
+            botao.style.boxShadow = 'none';
+            clearInterval(intervalID);
+            fetch('/pressionado', { method: 'POST', body: '0' });
+            botaoAtivo = null;
+        }
+    }
+
+    botao1.addEventListener('touchstart', () => iniciarAcao(botao1, '1', '#2980b9', '#3498db'));
+    botao1.addEventListener('touchend', () => pararAcao(botao1, '#3498db'));
+
+    botao2.addEventListener('touchstart', () => iniciarAcao(botao2, '2', '#ff8c66', '#ff5733'));
+    botao2.addEventListener('touchend', () => pararAcao(botao2, '#ff5733'));
+
+    botao3.addEventListener('touchstart', () => iniciarAcao(botao3, '3', '#1d8348', '#27ae60'));
+    botao3.addEventListener('touchend', () => pararAcao(botao3, '#27ae60'));
+
+    botao4.addEventListener('touchstart', () => iniciarAcao(botao4, '4', '#d35400', '#f39c12'));
+    botao4.addEventListener('touchend', () => pararAcao(botao4, '#f39c12'));
+</script>
+
+</body>
+</html>
+)===";
+
+// WiFi
+const char *nome_da_rede = "zutron";
+const char *senha = "12345678";
+
+// Pinos da ponte H
+const int motorDireitaFrente = 3;
+const int motorDireitaTras = 0;
+const int motorEsquerdaFrente = 2;
+const int motorEsquerdaTras = 1;
+
+ESP8266WebServer servidor(80);
+
+// Funções de controle
+void frente() {
+  digitalWrite(motorDireitaFrente, HIGH);
+  digitalWrite(motorDireitaTras, LOW);
+  digitalWrite(motorEsquerdaFrente, HIGH);
+  digitalWrite(motorEsquerdaTras, LOW);
+}
+
+void tras() {
+  digitalWrite(motorDireitaFrente, LOW);
+  digitalWrite(motorDireitaTras, HIGH);
+  digitalWrite(motorEsquerdaFrente, LOW);
+  digitalWrite(motorEsquerdaTras, HIGH);
+}
+
+void parar() {
+  digitalWrite(motorDireitaFrente, LOW);
+  digitalWrite(motorDireitaTras, LOW);
+  digitalWrite(motorEsquerdaFrente, LOW);
+  digitalWrite(motorEsquerdaTras, LOW);
+}
+
+void virarDireita() {
+  digitalWrite(motorDireitaFrente, LOW);
+  digitalWrite(motorDireitaTras, HIGH);
+  digitalWrite(motorEsquerdaFrente, HIGH);
+  digitalWrite(motorEsquerdaTras, LOW);
+}
+
+void virarEsquerda() {
+  digitalWrite(motorDireitaFrente, HIGH);
+  digitalWrite(motorDireitaTras, LOW);
+  digitalWrite(motorEsquerdaFrente, LOW);
+  digitalWrite(motorEsquerdaTras, HIGH);
+}
+
+void setup() {
+  pinMode(motorDireitaFrente, OUTPUT);
+  pinMode(motorDireitaTras, OUTPUT);
+  pinMode(motorEsquerdaFrente, OUTPUT);
+  pinMode(motorEsquerdaTras, OUTPUT);
+
+  parar();
+
+  WiFi.softAP(nome_da_rede, senha);
+
+  servidor.on("/", []() {
+    servidor.send(200, "text/html", pagina);
+  });
+
+  servidor.on("/pressionado", HTTP_POST, []() {
+    String estado = servidor.arg("plain");
+    char comando = estado.charAt(0);
+
+    switch (comando) {
+      case '1': frente(); break;
+      case '2': virarEsquerda(); break;
+      case '3': virarDireita(); break;
+      case '4': tras(); break;
+      case '0': parar(); break;
+      default: parar(); break;
+    }
+
+    servidor.send(200, "text/plain", "OK");
+  });
+
+  servidor.begin();
+}
+
+void loop() {
+  servidor.handleClient();
+}
